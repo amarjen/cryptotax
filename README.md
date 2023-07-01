@@ -10,7 +10,7 @@ It reads transactions from CSV files and process them to output a PNL report. It
 - SELL PERMUTA: Sell a crypto asset for another crypto primary asset.
 
 ## Definitions
-- **Base Fiat Asset:** Eg. `EUR` / `USD` / ... The tool will not track inventory for this asset.
+- **Base Fiat Asset:** Eg. `EUR` / `USD` / ... The tool will report all PNL txs in this currency and will not track its inventory.
 - **Crypto Asset:** Any asset you trade, save Fiat assets. The tool will track balances for this kind of assets, in order to compute PNL.
 - **Primary Crypto Asset:** The ones you have available its prices quoted in `base_fiat_asset`. Currently the tool only allows `BTC`
 
@@ -18,8 +18,8 @@ It reads transactions from CSV files and process them to output a PNL report. It
 Not yet: `python -m pip install cryptotax`
 
 ```
-git clone https://github.com/amarjen/seed-shuffler.git
-cd seed-shuffler
+git clone https://github.com/amarjen/cryptotax.git
+cd cryptotax
 python -m pip install .
 ```
 
