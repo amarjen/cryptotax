@@ -1,0 +1,35 @@
+data/
+notebooks/
+output/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Builds
+develop-eggs/
+dist/
+build/
+pkg/
+eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Tests reports
+.pytest_cache/
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+
+# otros
+.ipynb_checkpoints/
+*.ipynb
+*.pdf
+.vscode/
