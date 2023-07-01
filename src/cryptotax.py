@@ -6,11 +6,10 @@ import csv
 import logging
 import decimal
 import argparse
-import itertools
 from decimal import Decimal
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any
 
 decimal.getcontext().prec = 8
 logger = logging.getLogger(__name__)
@@ -520,11 +519,13 @@ def main():
         args = parser.parse_args()
 
     # files = args.files
-    # TXS_BTC_FILE = "./transactions.csv"   ## Historico Años 16-18
-    # TXS_BTC_FILE = "./transactions2019-bis.csv"   ## Para renta 2019
+    # TXS_BTC_FILE = "./transactions.csv"   # 16-18
+    # TXS_BTC_FILE = "./transactions2019-bis.csv"   # 19
     # initial_inventory = Inventory()
+
     TXS_BTC_FILE = (
-        "/home/tony/code/cryptotax/data/transactions-bisq.csv"  ## Para Rentas 2020..
+        # 20
+        "/home/tony/code/cryptotax/data/transactions-bisq.csv"
     )
     TXS_XMR_FILE = "/home/tony/code/cryptotax/data/localmonero-2020.csv"
     BTC_EUR_FILE = "/home/tony/contabilidad/trading/precios-btc.db"
