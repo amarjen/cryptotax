@@ -15,6 +15,41 @@ decimal.getcontext().prec = 8
 logger = logging.getLogger(__name__)
 
 
+class Asset:
+    """
+    Representa un activo
+    TODO: Implementar esta clase para las transacciones, lotes, etc...
+    """
+
+    def __init__(
+        self,
+        symbol: str,
+        kind: str,
+    ):
+        if kind not in ["FIAT", "VIRTUAL"]:
+            raise ValueError("Asset must be either FIAT or VIRTUAL")
+
+        self.symbol = symbol
+        self.kind = kind
+        self.prices = {}
+
+    def register_asset_prices(self, prices_file: str):
+        try:
+            with open(prices_file, "r") as f:
+                """
+                El formato de precios es de ledger-cli
+                """
+                for line in f:
+                    row = line.split()
+                    if row[0] == "P":
+                        self.prices[datetime.strptime(row[1], "%Y-%m-%d")] = Decimal(
+                            row[3]
+                        )
+
+        except FileNotFoundError:
+            print("Could not find the price file.")
+
+
 class Transaction:
     def __init__(
         self,
@@ -212,16 +247,22 @@ class TaxEngine:
         initial_inventory: Inventory = None,
         transactions: List[Transaction] = None,
         base_asset: str = "EUR",
-        btceur_file: str = None,
     ):
         self.year = year
         self.criterio = criterio
         self.inventory = initial_inventory or Inventory()
         self.transactions = transactions or []
-        self.base_asset = base_asset
+        self.base_asset = Asset(base_asset, "FIAT")
         self.tax_events = defaultdict(list)
 
-        self.btceur = self._get_precio_btc(btceur_file)
+
+        btc = Asset('BTC', 'VIRTUAL')
+        btc.register_asset_prices("/home/tony/contabilidad/trading/precios-btc.db")
+        self.btceur = btc.prices
+
+        xmr = Asset('XMR', 'VIRTUAL')
+        xmr.register_asset_prices("/home/tony/contabilidad/trading/precios-xmr.db")
+        self.xmreur = xmr.prices
 
     def read_transactions(self, files: List[str]):
 
@@ -253,17 +294,20 @@ class TaxEngine:
         log_inventario_inicial = True
 
         handlers = {
-            ("Buy", self.base_asset): self._handle_buy,
-            ("Buy", "BTC"): self._handle_buy_permuta,
-            ("Sell", self.base_asset): self._handle_sell,
-            ("Sell", "BTC"): self._handle_sell_permuta,
+            ("Buy", self.base_asset.symbol): self._handle_buy,
+            ("Sell", self.base_asset.symbol): self._handle_sell,
         }
+
+        handlers.update(
+            {("Buy", asset): self._handle_buy_permuta for asset in ["BTC", "XMR"]}
+        )
+        handlers.update(
+            {("Sell", asset): self._handle_sell_permuta for asset in ["BTC", "XMR"]}
+        )
 
         self._init_transactions()
         for n, tx in enumerate(self.transactions):
             tx_current_year = tx.date.year == self.year
-
-            assert tx.asset2 in ("BTC", "EUR")
 
             if tx_current_year and log_inventario_inicial:
                 logger.info(f"Inventario inicial: {self.inventory.print_balance()}")
@@ -305,6 +349,11 @@ class TaxEngine:
 
                     logger.info(f"       Inventario: {self.inventory.print_balance()}")
 
+    """
+    a) Cambio de monedas virtuales por moneda de curso legal (moneda fiduciaria)
+    Normativa: Arts. 35, 14 y 46.b) Ley IRPF 
+    """
+
     def _handle_buy(self, tx):
 
         result = {
@@ -314,19 +363,6 @@ class TaxEngine:
             "qty_to_push": tx.qty1,
             "cost_basis": tx.qty2 / tx.qty1,
             "income": None,
-        }
-
-        return result
-
-    def _handle_buy_permuta(self, tx):
-
-        result = {
-            "asset_to_pop": tx.asset2,
-            "qty_to_pop": tx.qty2,
-            "asset_to_push": tx.asset1,
-            "qty_to_push": tx.qty1,
-            "cost_basis": self.btceur[tx.date] * tx.qty2 / tx.qty1,
-            "income": tx.qty2 * self.btceur[tx.date],
         }
 
         return result
@@ -344,15 +380,74 @@ class TaxEngine:
 
         return result
 
+    """
+    b) Intercambio de una moneda virtual por otra diferente
+    Normativa: Arts. 37.1.h), 14 y 46.b) Ley IRPF
+
+    Para cuantificar la ganancia o pérdida patrimonial se aplica la norma de
+    valoración específica de la permuta prevista en el artículo 37.1.h) de
+    la Ley del IRPF conforme a la cual la ganancia o pérdida patrimonial se
+    determinará por la diferencia entre el valor de adquisición de la moneda
+    virtual que se entrega y el mayor de los dos siguientes:
+
+    - El valor de mercado de la moneda virtual entregada.
+    - El valor de mercado del bien o derecho que se recibe a cambio.
+
+    A efectos de posteriores transmisiones, el valor de adquisición de las
+    monedas virtuales obtenidas mediante permuta será el valor que haya
+    tenido en cuenta el contribuyente por aplicación de la regla prevista
+    en el citado artículo 37.1.h) como valor de transmisión en dicha permuta.
+
+    En lo que respecta al valor de mercado correspondiente a las monedas
+    virtuales que se permutan, es el que correspondería al precio acordado
+    para su venta entre sujetos independientes en el momento de la permuta.
+    """
+
+    def _handle_buy_permuta(self, tx):
+        """
+        Ejemplo: Compra de XMR contra Entrega de BTC
+        Valor de adquisición (va) = Valor adquisición `asset1` entregados
+        Valor de transmisión = Max (valor de mercado `asset1` entregados,
+                                    valor de mercado `asset2` recibidos)
+
+        GPP = Valor de transmisión - Valor de adquisición
+
+        """
+
+        vt = max(self.btceur[tx.date]*tx.qty2,
+                 self.xmreur[tx.date]*tx.qty1)
+
+        result = {
+            "asset_to_pop": tx.asset2,
+            "qty_to_pop": tx.qty2,
+            "asset_to_push": tx.asset1,
+            "qty_to_push": tx.qty1,
+            "cost_basis": vt / tx.qty1,
+            "income": vt
+        }
+
+        return result
+
     def _handle_sell_permuta(self, tx):
+        """
+        Ejemplo: Venta de XMR por BTC a cambio
+        Valor de adquisición = Valor adquisición `asset1` entregados
+        Valor de transmisión = Max (valor de mercado `asset1` entregados,
+                                    valor de mercado `asset2` recibidos)
+
+        GPP = Valor de transmisión - Valor de adquisición
+
+        """
+        vt = max(self.btceur[tx.date]*tx.qty2,
+                 self.xmreur[tx.date]*tx.qty1)
 
         result = {
             "asset_to_pop": tx.asset1,
             "qty_to_pop": tx.qty1,
             "asset_to_push": tx.asset2,
             "qty_to_push": tx.qty2,
-            "cost_basis": self.btceur[tx.date],
-            "income": tx.qty2 * self.btceur[tx.date],
+            "cost_basis": vt / tx.qty2,
+            "income": vt,
         }
 
         return result
@@ -452,20 +547,6 @@ class TaxEngine:
 
         return
 
-    def _get_precio_btc(self, btc_eur_file: str) -> Dict[datetime, Decimal]:
-        # Leer precio de bitcoin diario
-        btceur = {}
-        try:
-            with open(btc_eur_file, "r") as f:
-                for line in f:
-                    row = line.split()
-                    if row[0] == "P":
-                        btceur[datetime.strptime(row[1], "%Y-%m-%d")] = Decimal(row[3])
-        except FileNotFoundError:
-            print("Could not find the BTC price file.")
-
-        return btceur
-
 
 def main():
 
@@ -519,8 +600,6 @@ def main():
         args = parser.parse_args()
 
     # files = args.files
-    # TXS_BTC_FILE = "./transactions.csv"   # 16-18
-    # TXS_BTC_FILE = "./transactions2019-bis.csv"   # 19
     # initial_inventory = Inventory()
 
     TXS_BTC_FILE = (
@@ -528,7 +607,6 @@ def main():
         "/home/tony/code/cryptotax/data/transactions-bisq.csv"
     )
     TXS_XMR_FILE = "/home/tony/code/cryptotax/data/localmonero-2020.csv"
-    BTC_EUR_FILE = "/home/tony/contabilidad/trading/precios-btc.db"
 
     initial_inventory = Inventory.from_csv(
         "/home/tony/code/cryptotax/data/inventario-inicial-2020.csv"
@@ -538,7 +616,6 @@ def main():
         year=args.year,
         criterio=args.criterio,
         initial_inventory=initial_inventory,
-        btceur_file=BTC_EUR_FILE,
     )
 
     tax_report.read_transactions([TXS_BTC_FILE, TXS_XMR_FILE])

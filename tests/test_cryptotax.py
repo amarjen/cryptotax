@@ -112,7 +112,6 @@ def test_inventory_total_cost():
 
 # Create a setup function for the TaxYear
 def setup_tax_engine():
-    btceur_file = "/home/tony/contabilidad/trading/precios-btc.db"
     inventory = setup_inventory()
     transactions = [
         Transaction(
@@ -140,7 +139,6 @@ def setup_tax_engine():
         initial_inventory=inventory,
         transactions=transactions,
         base_asset="EUR",
-        btceur_file=btceur_file,
     )
 
 
